@@ -1,0 +1,760 @@
+home_screen: :import 'package:flutter/material.dart';
+import 'calculator.dart';
+import 'sign_in_screen.dart';
+import 'sign_up_screen.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:contacts_service/contacts_service.dart';
+import 'dart:io';
+
+class HomeScreen extends StatefulWidget {
+  final Function(ThemeMode) onThemeChanged;
+  final Function(Locale) onLanguageChanged;
+  final List<Contact> contacts;
+  final Function(XFile) onUpdateProfileImage;
+  final XFile? profileImage;
+
+  const HomeScreen({
+    Key? key,
+    required this.onThemeChanged,
+    required this.onLanguageChanged,
+    required this.contacts,
+    required this.onUpdateProfileImage,
+    this.profileImage,
+  }) : super(key: key);
+
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _selectedIndex = 0;
+  bool _isDarkMode = false;
+  List<Widget> _screens = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _screens = [
+      SignInScreen(isDarkMode: _isDarkMode),
+      SignUpScreen(isDarkMode: _isDarkMode),
+      const CalculatorScreen(),
+    ];
+  }
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  Future<void> _getImage(ImageSource source) async {
+    final pickedFile = await ImagePicker().pickImage(source: source);
+    if (pickedFile != null) {
+      widget.onUpdateProfileImage(pickedFile);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Home Screen'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.language),
+            onPressed: () {
+              widget.onLanguageChanged(_isDarkMode ? const Locale('en') : const Locale('es'));
+            },
+          ),
+        ],
+      ),
+      body: _screens[_selectedIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        items: const <BottomNavigationBarItem>[
+          BottomNavigationBarItem(
+            icon: Icon(Icons.login),
+            label: 'Sign In',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.app_registration),
+            label: 'Sign Up',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.calculate),
+            label: 'Calculator',
+          ),
+        ],
+        currentIndex: _selectedIndex,
+        selectedItemColor: Colors.amber[800],
+        onTap: _onItemTapped,
+      ),
+      drawer: Drawer(
+        child: Container(
+          color: _isDarkMode ? Colors.grey[800] : Colors.white,
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: <Widget>[
+              DrawerHeader(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topRight,
+                    end: Alignment.bottomLeft,
+                    colors: [Colors.blue, Colors.red],
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Menu',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    CircleAvatar(
+                      radius: 40,
+                      backgroundImage: widget.profileImage != null
+                          ? FileImage(File(widget.profileImage!.path))
+                          : const AssetImage('assets/default_profile.png') as ImageProvider,
+                    ),
+                  ],
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Select from Gallery'),
+                onTap: () {
+                  _getImage(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Take a Picture'),
+                onTap: () {
+                  _getImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                title: const Text('Dark Mode'),
+                trailing: Switch(
+                  value: _isDarkMode,
+                  onChanged: (value) {
+                    setState(() {
+                      _isDarkMode = value;
+                      _screens[0] = SignInScreen(isDarkMode: _isDarkMode);
+                      _screens[1] = SignUpScreen(isDarkMode: _isDarkMode);
+                      widget.onThemeChanged(value ? ThemeMode.dark : ThemeMode.light);
+                    });
+                  },
+                ),
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.contacts),
+                title: const Text('Contacts'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ContactsScreen(contacts: widget.contacts),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ContactsScreen extends StatelessWidget {
+  final List<Contact> contacts;
+
+  const ContactsScreen({Key? key, required this.contacts}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Contacts'),
+      ),
+      body: ListView.builder(
+        itemCount: contacts.length,
+        itemBuilder: (context, index) {
+          final contact = contacts[index];
+          return ListTile(
+            title: Text(contact.displayName ?? 'No Name'),
+            subtitle: Text(contact.phones?.isNotEmpty == true
+                ? contact.phones!.first.value!
+                : 'No Phone'),
+          );
+        },
+      ),
+    );
+  }
+}
+
+
+main.dart:import 'dart:async';
+import 'package:battery/battery.dart';
+import 'package:connectivity/connectivity.dart';
+import 'package:flutter/material.dart';
+import 'package:fluttertoast/fluttertoast.dart';
+import 'package:contacts_service/contacts_service.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'home_screen.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MyApp());
+}
+
+class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+  @override
+  MyAppState createState() => MyAppState();
+}
+
+class MyAppState extends State<MyApp> {
+  ThemeMode themeMode = ThemeMode.light;
+  final Battery _battery = Battery();
+  final Connectivity _connectivity = Connectivity();
+  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
+
+  Locale _locale = const Locale('en');
+  List<Contact> _contacts = [];
+  XFile? _profileImage;
+
+  @override
+  void initState() {
+    super.initState();
+    initConnectivity();
+    initBattery();
+    _requestPermissions();
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> initConnectivity() async {
+    ConnectivityResult result = await _connectivity.checkConnectivity();
+    _checkStatus(result);
+    _connectivitySubscription = _connectivity.onConnectivityChanged.listen((result) {
+      _checkStatus(result);
+    });
+  }
+
+  void _checkStatus(ConnectivityResult result) {
+    if (result == ConnectivityResult.mobile || result == ConnectivityResult.wifi) {
+      Fluttertoast.showToast(msg: 'Internet Connected!');
+    } else {
+      Fluttertoast.showToast(msg: 'No Internet Connection!');
+    }
+  }
+
+  Future<void> initBattery() async {
+    _battery.onBatteryStateChanged.listen((BatteryState state) {
+      if (state == BatteryState.charging) {
+        _battery.batteryLevel.then((level) {
+          if (level >= 50) {
+            Fluttertoast.showToast(msg: 'Battery level is now $level%');
+            // Add your ringtone code here
+          }
+        });
+      }
+    });
+  }
+
+  Future<void> _requestPermissions() async {
+    var status = await Permission.contacts.status;
+    if (!status.isGranted) {
+      if (await Permission.contacts.request().isGranted) {
+        _fetchContacts();
+      } else {
+        Fluttertoast.showToast(msg: 'Permission denied');
+      }
+    } else {
+      _fetchContacts();
+    }
+  }
+
+  Future<void> _fetchContacts() async {
+    final Iterable<Contact> contacts = await ContactsService.getContacts();
+    setState(() {
+      _contacts = contacts.toList();
+    });
+  }
+
+  void _updateProfileImage(XFile image) {
+    setState(() {
+      _profileImage = image;
+    });
+  }
+
+  void _changeTheme(ThemeMode themeMode) {
+    setState(() {
+      this.themeMode = themeMode;
+    });
+  }
+
+  void _changeLanguage(Locale locale) {
+    setState(() {
+      _locale = locale;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Calculator',
+      themeMode: themeMode,
+      locale: _locale,
+      localizationsDelegates: const [
+        // Add your localization delegates here
+      ],
+      supportedLocales: const [
+        Locale('en'),
+        Locale('es'),
+      ],
+      home: HomeScreen(
+        onThemeChanged: _changeTheme,
+        onLanguageChanged: _changeLanguage,
+        contacts: _contacts,
+        onUpdateProfileImage: _updateProfileImage,
+        profileImage: _profileImage,
+      ),
+    );
+  }
+}
+
+
+calculator:
+import 'package:flutter/material.dart';
+
+
+
+class CalculatorScreen extends StatelessWidget {
+  const CalculatorScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Calculation();
+  }
+}
+
+class Calculation extends StatefulWidget {
+  const Calculation({super.key});
+
+  @override
+  _CalculationState createState() => _CalculationState();
+}
+
+class _CalculationState extends State<Calculation> {
+  List<dynamic> inputList = [0];
+  String output = '0';
+
+  void _handleClear() {
+    setState(() {
+      inputList = [0];
+      output = '0';
+    });
+  }
+
+  void _handlePress(String input) {
+    setState(() {
+      if (_isOperator(input)) {
+        if (inputList.last is int) {
+          inputList.add(input);
+          output += input;
+        }
+      } else if (input == '=') {
+        while (inputList.length > 2) {
+          int firstNumber = inputList.removeAt(0) as int;
+          String operator = inputList.removeAt(0);
+          int secondNumber = inputList.removeAt(0) as int;
+          int partialResult = 0;
+
+          if (operator == '+') {
+            partialResult = firstNumber + secondNumber;
+          } else if (operator == '-') {
+            partialResult = firstNumber - secondNumber;
+          } else if (operator == '*') {
+            partialResult = firstNumber * secondNumber;
+          } else if (operator == '/') {
+            partialResult = firstNumber ~/ secondNumber;
+            // Protect against division by zero
+            if (secondNumber == 0) {
+              partialResult = firstNumber;
+            }
+          }
+
+          inputList.insert(0, partialResult);
+        }
+
+        output = '${inputList[0]}';
+      } else {
+        int? inputNumber = int.tryParse(input);
+        if (inputNumber != null) {
+          if (inputList.last is int &&
+              !_isOperator(output[output.length - 1])) {
+            int lastNumber = (inputList.last as int);
+            lastNumber = lastNumber * 10 + inputNumber;
+            inputList.last = lastNumber;
+
+            output =
+                output.substring(0, output.length - 1) + lastNumber.toString();
+          } else {
+            inputList.add(inputNumber);
+            output += input;
+          }
+        }
+      }
+    });
+  }
+
+  bool _isOperator(String input) {
+    if (input == "+" || input == "-" || input == "*" || input == "/") {
+      return true;
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+
+      body: Column(
+        children: <Widget>[
+          TextField(
+            style: const TextStyle(fontSize: 100, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.right,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+            ),
+            controller: TextEditingController()..text = output,
+            readOnly: true,
+          ),
+          Expanded(
+            child: GridView.count(
+              crossAxisCount: 4,
+              children: <Widget>[
+                for (var i = 0; i <= 9; i++)
+                  TextButton(
+                    onPressed: () => _handlePress("$i"),
+                    style: ButtonStyle(
+                      backgroundColor:
+                      WidgetStateProperty.all(Colors.black12),
+                      shape:
+                      WidgetStateProperty.all<RoundedRectangleBorder>(
+                        RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(150.0),
+                        ),
+                      ),
+                      minimumSize: WidgetStateProperty.all(const Size(40, 40)),
+                    ),
+                    child: Text("$i", style: const TextStyle(fontSize: 40)),
+                  ),
+                TextButton(
+                  onPressed: _handleClear,
+                  style: ButtonStyle(
+                    backgroundColor: WidgetStateProperty.all(Colors.grey),
+                  ),
+                  child: const Text("C", style: TextStyle(fontSize: 40)),
+                ),
+                TextButton(
+                  onPressed: () => _handlePress("+"),
+                  style: ButtonStyle(
+                    backgroundColor:
+                    WidgetStateProperty.all(Colors.orangeAccent),
+                  ),
+                  child: const Text("+", style: TextStyle(fontSize: 40)),
+                ),
+                TextButton(
+                  onPressed: () => _handlePress("-"),
+                  style: ButtonStyle(
+                    backgroundColor:
+                    WidgetStateProperty.all(Colors.orangeAccent),
+                  ),
+                  child: const Text("-", style: TextStyle(fontSize: 40)),
+                ),
+                TextButton(
+                  onPressed: () => _handlePress("*"),
+                  style: ButtonStyle(
+                    backgroundColor:
+                    WidgetStateProperty.all(Colors.orangeAccent),
+                  ),
+                  child: const Text("*", style: TextStyle(fontSize: 40)),
+                ),
+                TextButton(
+                  onPressed: () => _handlePress("/"),
+                  style: ButtonStyle(
+                    backgroundColor:
+                    WidgetStateProperty.all(Colors.orangeAccent),
+                  ),
+                  child: const Text("/", style: TextStyle(fontSize: 40)),
+                ),
+                TextButton(
+                  onPressed: () => _handlePress("="),
+                  style: ButtonStyle(
+                    backgroundColor:
+                    WidgetStateProperty.all(Colors.orangeAccent),
+                  ),
+                  child: const Text("=", style: TextStyle(fontSize: 40)),
+                ),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+
+yaml:name: applica
+description: "A new Flutter project with internet connectivity detection."
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.3 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  intl: ^0.19.0
+  shared_preferences: ^2.2.3
+  battery: ^2.0.3
+  connectivity: ^3.0.6
+  flutter_local_notifications: ^17.2.1
+
+  fluttertoast: ^8.0.8
+  rxdart: ^0.27.2
+  contacts_service: ^0.6.3
+  image_picker: ^0.8.4+3
+  permission_handler: ^10.4.0
+  flutter_localizations: # Add this line
+    sdk: flutter
+  file_picker: ^8.0.6
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  intl_utils: ^2.4.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - lib/assets/translations/
+  generate: true
+
+
+signup: import 'sign_in_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+class SignUpScreen extends StatefulWidget {
+  final bool isDarkMode;
+
+  const SignUpScreen({super.key, required this.isDarkMode});
+
+  @override
+  _SignUpScreenState createState() => _SignUpScreenState();
+}
+
+class _SignUpScreenState extends State<SignUpScreen> {
+  DateTime? _date;
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _fullNameController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _phoneNumberController = TextEditingController();
+
+  Future<Null> selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _date ?? DateTime(DateTime.now().year - 50),
+      firstDate: DateTime(DateTime.now().year - 100),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null && picked != _date) {
+      setState(() {
+        _date = picked;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+        backgroundColor: widget.isDarkMode ? Colors.black : Colors.white60,
+        body: Padding(
+        padding: const EdgeInsets.all(40.0),
+    child: SingleChildScrollView(
+    child: Center(
+    child: Form(
+    key: _formKey,
+    child: Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: <Widget>[
+    Icon(
+    Icons.app_registration,
+    color: Colors.deepPurple,
+    size: 70.0,
+    ),
+    const SizedBox(height: 50),
+    TextFormField(
+    controller: _fullNameController,
+    style: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    decoration: InputDecoration(
+    labelText: "Full Name",
+    labelStyle: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    ),
+    validator: (value) {
+    if (value == null || value.isEmpty) {
+    return 'Please enter your full name';
+    }
+    return null;
+    },
+    ),
+    const SizedBox(height: 10),
+    TextFormField(
+    controller: _usernameController,
+    style: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    decoration: InputDecoration(
+    labelText: "Username",
+    labelStyle: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    ),
+    validator: (value) {
+    if (value == null || value.isEmpty) {
+    return 'Please enter a username';
+    }
+    return null;
+    },
+    ),
+    const SizedBox(height: 20),
+    TextFormField(
+    controller: _emailController,
+    style: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    decoration: InputDecoration(
+    labelText: "Email",
+    labelStyle: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    ),
+    validator: (value) {
+    if (value == null || value.isEmpty) {
+    return 'Please enter your email';
+    }
+    if (!value.contains('@')) {
+    return 'Please enter a valid email';
+    }
+    return null;
+    },
+    ),
+    const SizedBox(height: 20),
+    TextFormField(
+    controller: _passwordController,
+    obscureText: true,
+    style: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    decoration: InputDecoration(
+    labelText: "Password",
+    labelStyle: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    ),
+    validator: (value) {
+    if (value == null || value.isEmpty) {
+    return 'Please enter a password';
+    }
+    if (value.length < 6) {
+    return 'Password must be at least 6 characters';
+    }
+    return null;
+    },
+    ),
+    const SizedBox(height: 20),
+    TextFormField(
+    controller: _phoneNumberController,
+    keyboardType: TextInputType.phone,
+    style: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    decoration: InputDecoration(
+    labelText: "Telephone Number",
+    labelStyle: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    ),
+    validator: (value) {
+    if (value == null || value.isEmpty) {
+    return 'Please enter your phone number';
+    }
+    return null;
+    },
+    ),
+    GestureDetector(
+    onTap: () => selectDate(context),
+    child: AbsorbPointer(
+    child: TextFormField(
+    controller: TextEditingController(
+    text: _date != null ? DateFormat('yyyy-MM-dd').format(_date!) : '',
+    ),
+    style: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    decoration: InputDecoration(
+    labelText: 'Date of Birth',
+    labelStyle: TextStyle(color: widget.isDarkMode ? Colors.white : Colors.black),
+    ),
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter your date of birth';
+        }
+        return null;
+      },
+    ),
+    ),
+    ),
+      const SizedBox(height: 30),
+      ElevatedButton(
+        onPressed: () {
+          if (_formKey.currentState!.validate()) {
+            // Navigate to the next screen or show a success message
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => SignInScreen(isDarkMode: widget.isDarkMode),
+              ),
+            );
+          }
+        },
+        style: ButtonStyle(
+          backgroundColor: WidgetStateProperty.all(
+            widget.isDarkMode ? Colors.grey[800] : Colors.deepPurple,
+          ),
+        ),
+        child: const Text(
+          'Sign Up',
+          style: TextStyle(fontSize: 18.0, color: Colors.white),
+        ),
+      ),
+    ],
+    ),
+    ),
+    ),
+    ),
+        ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _fullNameController.dispose();
+    _usernameController.dispose();
+    _phoneNumberController.dispose();
+    super.dispose();
+  }
+}
